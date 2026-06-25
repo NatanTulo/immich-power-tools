@@ -173,11 +173,7 @@ export function PersonMergeDropdown({
       setSimilarLoading(true);
       fetchSuggestions();
     }
-  }, [threshold, name, open]);
-
-  useEffect(() => {
-    if (open && !similarPeople.length) fetchSuggestions();
-  }, [open, person.id, similarPeople, threshold, name]);
+  }, [threshold, name, open, person.id]);
 
   useEffect(() => {
     setPrimaryPerson(person);

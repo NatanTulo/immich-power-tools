@@ -3,7 +3,7 @@ import { db } from "@/config/db";
 import { getCurrentUser } from "@/handlers/serverUtils/user.utils";
 import { assetFaces, person } from "@/schema";
 import { faceSearch } from "@/schema/faceSearch.schema";
-import { and, cosineDistance, desc, eq, gt, ne, sql } from "drizzle-orm";
+import { and, asc, cosineDistance, desc, eq, gt, ne, sql } from "drizzle-orm";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 type ISortField = "assetCount" | "updatedAt" | "createdAt";
@@ -27,6 +27,7 @@ export default async function handler(
       id,
       threshold = 0.5, 
       name,
+      perPage = 50,
     } = req.query as any as IQuery;
 
     const currentUser = await getCurrentUser(req);
@@ -43,26 +44,33 @@ export default async function handler(
       });
     }
 
-    const assetFaceRecords = await db
-      .select()
-      .from(assetFaces)
-      .where(eq(assetFaces.personId, personRecord.id))
-      .limit(1);
-    const assetFaceRecord = assetFaceRecords?.[0];
+    // Use the person's representative face (faceAssetId) for deterministic results.
+    // Fall back to the first face ordered by ID if faceAssetId is not set.
+    let faceSearchRecord;
 
-    if (!assetFaceRecord) {
-      return res.status(404).json({
-        error: "Person has no face",
-      });
+    if (personRecord.faceAssetId) {
+      const records = await db
+        .select()
+        .from(faceSearch)
+        .where(eq(faceSearch.faceId, personRecord.faceAssetId))
+        .limit(1);
+      faceSearchRecord = records?.[0];
     }
 
-    const faceSearchRecords = await db
-      .select()
-      .from(faceSearch)
-      .where(eq(faceSearch.faceId, assetFaceRecord.id))
-      .limit(1);
+    if (!faceSearchRecord) {
+      const records = await db
+        .select({
+          faceId: faceSearch.faceId,
+          embedding: faceSearch.embedding,
+        })
+        .from(faceSearch)
+        .innerJoin(assetFaces, eq(assetFaces.id, faceSearch.faceId))
+        .where(eq(assetFaces.personId, personRecord.id))
+        .orderBy(asc(faceSearch.faceId))
+        .limit(1);
+      faceSearchRecord = records?.[0];
+    }
 
-    const faceSearchRecord = faceSearchRecords?.[0];
     if (!faceSearchRecord) {
       return res.status(404).json({
         error: "No similar faces found",
@@ -74,7 +82,15 @@ export default async function handler(
       faceSearchRecord.embedding
     )})`;
 
-    const people = await db
+    // Build name filter for SQL (instead of post-query filtering)
+    const nameFilter =
+      name === "nameless" ? eq(person.name, "")
+      : name === "tagged" ? ne(person.name, "")
+      : undefined;
+
+    // Use DISTINCT ON with proper ORDER BY to get the best match per person.
+    // PostgreSQL requires DISTINCT ON columns to be the leading ORDER BY columns.
+    const distinctSubquery = db
       .selectDistinctOn([person.id], {
         id: person.id,
         name: person.name,
@@ -88,26 +104,26 @@ export default async function handler(
       .from(faceSearch)
       .leftJoin(assetFaces, eq(assetFaces.id, faceSearch.faceId))
       .innerJoin(person, eq(person.id, assetFaces.personId))
-
       .where(
         and(
           ne(person.id, id),
           eq(person.ownerId, currentUser.id),
-          gt(similarity, threshold) 
+          gt(similarity, threshold),
+          nameFilter,
         )
       )
-      .limit(12);
+      .orderBy(person.id, desc(similarity))
+      .as("distinct_people");
 
+    // Wrap in outer query to sort by similarity DESC and apply limit.
+    const limit = Math.min(Math.max(Number(perPage) || 50, 1), 200);
+    const people = await db
+      .select()
+      .from(distinctSubquery)
+      .orderBy(desc(distinctSubquery.similarity))
+      .limit(limit);
 
-    const filteredPeople = people.filter((personRecord) => {
-      if (name === "nameless") {
-        return !personRecord.name || personRecord.name === "";
-      } else if (name === "tagged") {
-        return personRecord.name && personRecord.name !== "";
-      }
-      return true;
-    }); 
-    return res.status(200).json(filteredPeople);
+    return res.status(200).json(people);
   } catch (error: any) {
     res.status(500).json({
       error: error?.message,
