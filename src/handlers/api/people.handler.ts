@@ -43,7 +43,7 @@ export const mergePerson = (id: string, targetIds: string[]) => {
 
 interface IListSimilarFacesParams {
   threshold: number;
-  name: "nameless" | "tagged";
+  name: "nameless" | "tagged" | "all";
 }
 export const listSimilarFaces = (id: string, params: IListSimilarFacesParams) => {
   const { threshold, name } = params;

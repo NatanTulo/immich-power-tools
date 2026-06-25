@@ -60,8 +60,52 @@ export function PersonMergeDropdown({
   const [selectedPeople, setSelectedPeople] = useState<IPerson[]>([]);
   const [primaryPerson, setPrimaryPerson] = useState<IPerson>(person);
   const [merging, setMerging] = useState(false);
-  const [threshold, setThreshold] = useState(0.5);
-  const [name, setName] = useState<"nameless" | "tagged">("tagged");
+  const [threshold, setThreshold] = useState<number>(0.5);
+  const [name, setName] = useState<"nameless" | "tagged" | "all">("tagged");
+
+  const loadSavedSettings = () => {
+    try {
+      const savedThreshold = localStorage.getItem("merge_threshold");
+      const savedName = localStorage.getItem("merge_name");
+      if (savedThreshold !== null) {
+        const parsed = parseFloat(savedThreshold);
+        if (!isNaN(parsed)) setThreshold(parsed);
+      }
+      if (savedName !== null) {
+        setName(savedName as "nameless" | "tagged" | "all");
+      }
+    } catch (e) {
+      console.error("Failed to load settings from localStorage", e);
+    }
+  };
+
+  const handleThresholdChange = (val: number) => {
+    setThreshold(val);
+    try {
+      localStorage.setItem("merge_threshold", val.toString());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleNameChange = (val: "nameless" | "tagged" | "all") => {
+    setName(val);
+    try {
+      localStorage.setItem("merge_name", val);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    loadSavedSettings();
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      loadSavedSettings();
+    }
+  }, [open]);
   const { toast } = useToast();
 
   const selectedIds = useMemo(
@@ -303,7 +347,7 @@ export function PersonMergeDropdown({
             min="0"
             max="1"
             value={threshold}
-            onChange={(e) => setThreshold(parseFloat(e.target.value))}
+            onChange={(e) => handleThresholdChange(parseFloat(e.target.value))}
             placeholder="Threshold (0 to 1)"
           />
         </div>
@@ -311,7 +355,7 @@ export function PersonMergeDropdown({
           <Label htmlFor="threshold">
             Name
           </Label>
-         <Select value={name} onValueChange={(value) => setName(value as "nameless" | "tagged")}>
+          <Select value={name} onValueChange={handleNameChange}>
           <SelectTrigger>
             <SelectValue placeholder="Select a name" />
           </SelectTrigger>
