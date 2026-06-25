@@ -30,6 +30,9 @@ export default async function handler(
       perPage = 50,
     } = req.query as any as IQuery;
 
+    const thresholdNum = Number(threshold) || 0.5;
+    const limit = Math.min(Math.max(Number(perPage) || 50, 1), 200);
+
     const currentUser = await getCurrentUser(req);
     const personRecords = await db
       .select()
@@ -89,8 +92,10 @@ export default async function handler(
       : undefined;
 
     // Use DISTINCT ON with proper ORDER BY to get the best match per person.
-    // PostgreSQL requires DISTINCT ON columns to be the leading ORDER BY columns.
-    const distinctSubquery = db
+    // PostgreSQL requires DISTINCT ON columns to be the leading ORDER BY columns,
+    // so we sort by person.id first (for DISTINCT ON), then similarity DESC
+    // (so the highest-similarity face is kept for each person).
+    const people = await db
       .selectDistinctOn([person.id], {
         id: person.id,
         name: person.name,
@@ -108,20 +113,16 @@ export default async function handler(
         and(
           ne(person.id, id),
           eq(person.ownerId, currentUser.id),
-          gt(similarity, threshold),
+          gt(similarity, thresholdNum),
           nameFilter,
         )
       )
       .orderBy(person.id, desc(similarity))
-      .as("distinct_people");
-
-    // Wrap in outer query to sort by similarity DESC and apply limit.
-    const limit = Math.min(Math.max(Number(perPage) || 50, 1), 200);
-    const people = await db
-      .select()
-      .from(distinctSubquery)
-      .orderBy(desc(distinctSubquery.similarity))
       .limit(limit);
+
+    // Sort results by similarity descending (can't do it in SQL with DISTINCT ON
+    // because PostgreSQL requires DISTINCT ON columns as leading ORDER BY columns)
+    people.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
 
     return res.status(200).json(people);
   } catch (error: any) {
