@@ -97,15 +97,16 @@ export function PersonMergeDropdown({
     }
   };
 
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen) {
+      loadSavedSettings();
+    }
+    setOpen(newOpen);
+  };
+
   useEffect(() => {
     loadSavedSettings();
   }, []);
-
-  useEffect(() => {
-    if (open) {
-      loadSavedSettings();
-    }
-  }, [open]);
   const { toast } = useToast();
 
   const selectedIds = useMemo(
@@ -136,20 +137,6 @@ export function PersonMergeDropdown({
           setLoading(false);
         });
     }, 500);
-  };
-
-  const fetchSuggestions = () => {
-    return listSimilarFaces(person.id, { threshold, name: name })
-      .then(setSimilarPeople)
-      .catch(() => {
-        toast({
-          title: "Error",
-          description: "Failed to fetch similar people",
-        });
-      })
-      .finally(() => {
-        setSimilarLoading(false);
-      });
   };
 
   const handleSelect = (value: IPerson) => {
@@ -213,10 +200,31 @@ export function PersonMergeDropdown({
   };
 
   useEffect(() => {
-    if (open) {
-      setSimilarLoading(true);
-      fetchSuggestions();
-    }
+    if (!open) return;
+
+    let active = true;
+    setSimilarLoading(true);
+
+    listSimilarFaces(person.id, { threshold, name })
+      .then((data) => {
+        if (active) {
+          setSimilarPeople(data);
+          setSimilarLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          toast({
+            title: "Error",
+            description: "Failed to fetch similar people",
+          });
+          setSimilarLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [threshold, name, open, person.id]);
 
   useEffect(() => {
@@ -279,7 +287,7 @@ export function PersonMergeDropdown({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
