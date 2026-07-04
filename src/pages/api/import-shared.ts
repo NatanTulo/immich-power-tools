@@ -11,28 +11,10 @@ interface ImmichOwner {
   email?: string | null;
 }
 
-interface ImmichExifInfo {
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  description?: string | null;
-  fileSizeInByte?: number | null;
-}
-
-interface ImmichAsset {
-  id: string;
-  originalFileName: string;
-  type: string;
-  fileCreatedAt?: string | null;
-  localDateTime?: string | null;
-  thumbhash?: string | null;
-  exifInfo?: ImmichExifInfo | null;
-}
-
 interface ImmichAlbumResponse {
   albumName: string;
   assetCount?: number;
-  owner?: ImmichOwner | null;
+  albumUsers?: { user: ImmichOwner; role: string }[];
   description?: string | null;
   startDate?: string | null;
   endDate?: string | null;
@@ -41,7 +23,6 @@ interface ImmichAlbumResponse {
   lastModifiedAssetTimestamp?: string | null;
   order?: string | null;
   contributorCounts?: IAlbumContributorCount[];
-  assets: ImmichAsset[];
 }
 
 interface ImmichSharedLinkResponse {
@@ -58,7 +39,7 @@ interface ImmichSharedLinkResponse {
 
 interface IImportSharedAsset {
   id: string;
-  originalFileName: string;
+  originalFileName?: string;
   type: string;
   fileCreatedAt?: string | null;
   localDateTime?: string | null;
@@ -66,6 +47,15 @@ interface IImportSharedAsset {
   location?: string | null;
   thumbhash?: string | null;
   fileSizeInByte?: number | null;
+}
+
+interface ITimeBucketAssets {
+  id: string[];
+  fileCreatedAt: string[];
+  isImage: boolean[];
+  thumbhash: (string | null)[];
+  city?: (string | null)[];
+  country?: (string | null)[];
 }
 
 interface IImportSharedAlbum {
@@ -122,13 +112,39 @@ const parseSharedLink = (link: string) => {
   }
 };
 
-const buildLocationString = (exif?: ImmichExifInfo | null) => {
-  if (!exif) {
-    return null;
+const enumerateAlbumAssets = async (
+  origin: string,
+  albumId: string,
+  authQuery: string
+): Promise<IImportSharedAsset[]> => {
+  const buckets = await fetchJson<{ timeBucket: string }[]>(
+    `${origin}/api/timeline/buckets?albumId=${albumId}&${authQuery}`
+  );
+
+  const assets: IImportSharedAsset[] = [];
+  for (const bucket of buckets) {
+    const columns = await fetchJson<ITimeBucketAssets>(
+      `${origin}/api/timeline/bucket?albumId=${albumId}&timeBucket=${encodeURIComponent(bucket.timeBucket)}&${authQuery}`
+    );
+    const count = columns.id?.length ?? 0;
+    for (let i = 0; i < count; i++) {
+      const city = columns.city?.[i] ?? null;
+      const country = columns.country?.[i] ?? null;
+      const location = [city, country].filter(Boolean).join(", ") || null;
+      const fileCreatedAt = columns.fileCreatedAt?.[i] ?? null;
+      assets.push({
+        id: columns.id[i],
+        type: columns.isImage?.[i] === false ? "VIDEO" : "IMAGE",
+        fileCreatedAt,
+        localDateTime: fileCreatedAt,
+        description: null,
+        location,
+        thumbhash: columns.thumbhash?.[i] ?? null,
+        fileSizeInByte: null,
+      });
+    }
   }
-  const parts = [exif.city, exif.state, exif.country]
-    .filter((value): value is string => !!value && value.trim().length > 0);
-  return parts.length > 0 ? parts.join(", ") : null;
+  return assets;
 };
 
 const fetchJson = async <T>(url: string) => {
@@ -266,25 +282,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (albumId) {
       const album = await fetchJson<ImmichAlbumResponse>(
-        `${parsed.origin}/api/albums/${albumId}?${authQuery}&withoutAssets=false`
+        `${parsed.origin}/api/albums/${albumId}?${authQuery}`
       );
 
-      const assets = (album.assets || []).map((asset) => ({
-        id: asset.id,
-        originalFileName: asset.originalFileName,
-        type: asset.type,
-        fileCreatedAt: asset.fileCreatedAt ?? null,
-        localDateTime: asset.localDateTime ?? null,
-        description: asset.exifInfo?.description ?? null,
-        location: buildLocationString(asset.exifInfo),
-        thumbhash: asset.thumbhash ?? null,
-        fileSizeInByte: asset.exifInfo?.fileSizeInByte ?? null,
-      } satisfies IImportSharedAsset));
+      const assets = await enumerateAlbumAssets(parsed.origin, albumId, authQuery);
 
       albumResult = {
         albumName: album.albumName,
         assetCount: album.assetCount ?? assets.length,
-        owner: album.owner ?? null,
+        owner: album.albumUsers?.[0]?.user ?? null,
         description: album.description ?? null,
         startDate: album.startDate ?? null,
         endDate: album.endDate ?? null,

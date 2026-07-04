@@ -9,7 +9,6 @@ const SELECT_ORPHAN_PHOTOS = (date: string, ownerId:  string) =>
   SELECT 
       a."id",
       a."ownerId",
-      a."deviceId",
       a."type",
       a."originalPath",
       a."isFavorite",

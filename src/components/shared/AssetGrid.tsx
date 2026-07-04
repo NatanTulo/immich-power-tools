@@ -216,6 +216,7 @@ const AssetGrid = forwardRef<AssetGridRef, AssetGridProps>(({ assets, isInternal
         height={context.height}
         selectable={selectable}
         onSelect={(event) => handleSelect(context.index, context.photo, event)}
+        selectionMode={selectable && selectedIds.length > 0}
       />
     );
   };

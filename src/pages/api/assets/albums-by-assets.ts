@@ -3,6 +3,7 @@ import { db } from "@/config/db";
 import { getCurrentUser } from "@/handlers/serverUtils/user.utils";
 import { albums } from "@/schema/albums.schema";
 import { albumsAssetsAssets } from "@/schema/albumAssetsAssets.schema";
+import { albumUsers } from "@/schema/albumUsers.schema";
 import { eq, inArray, and } from "drizzle-orm";
 
 export const config = {
@@ -39,10 +40,11 @@ export default async function handler(
     })
     .from(albumsAssetsAssets)
     .innerJoin(albums, eq(albumsAssetsAssets.albumId, albums.id))
+    .innerJoin(albumUsers, and(eq(albumUsers.albumId, albums.id), eq(albumUsers.role, "owner")))
     .where(
       and(
         inArray(albumsAssetsAssets.assetId, assetIds),
-        eq(albums.ownerId, currentUser.id)
+        eq(albumUsers.userId, currentUser.id)
       )
     );
 

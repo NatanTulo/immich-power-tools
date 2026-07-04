@@ -163,16 +163,15 @@ export async function executeAction(
     }
 
     case "archive": {
-      await immichFetch("/assets", "PUT", { ids: assetIds, isArchived: true }, user);
+      await immichFetch("/assets", "PUT", { ids: assetIds, visibility: "archive" }, user);
       return { action: "archive", assetsProcessed: assetIds.length };
     }
 
     case "tag": {
       if (!config.tagName) throw new Error("Tag name is required");
-      // Tags API may vary by Immich version — try the standard approach
       try {
         // Create or get tag
-        const tag = await immichFetch("/tags", "POST", { name: config.tagName, type: "OBJECT" }, user);
+        const tag = await immichFetch("/tags", "POST", { name: config.tagName }, user);
         // Tag assets
         await immichFetch(`/tags/${tag.id}/assets`, "PUT", { ids: assetIds }, user);
         return { action: "tag", assetsProcessed: assetIds.length };
